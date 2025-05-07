@@ -1,3 +1,4 @@
 *
-main.pdf
-mycode/*
+!main.pdf
+!mycode/
+!mycode/**
