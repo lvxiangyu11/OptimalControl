@@ -1,113 +1,66 @@
-"""
-missile_pursuit_dynamic.py
-
-A dynamic (animated) visualization of a missile pursuing a moving target.
-Here the missile uses a simple Pure Pursuit law: at each timestep it turns
-to point directly at the current target position, with a maximum turn rate.
-
-The target moves at constant speed and heading. The missile moves at constant
-speed but can change its heading up to a specified max angular velocity.
-
-Matplotlib FuncAnimation is used to animate the trajectories in real time.
-"""
-
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.animation import FuncAnimation
+from scipy.optimize import root
 
-# Simulation parameters
-dt = 0.01             # time step [s]
-max_time = 30.0       # max simulation time [s]
-t_vals = np.arange(0, max_time, dt)
+# 设置matplotlib支持中文显示
+plt.rcParams['font.sans-serif'] = ['SimHei']   # 使用黑体
+plt.rcParams['axes.unicode_minus'] = False     # 正常显示负号
 
-# Target parameters
-v_t = 1.0                                  # target speed
-phi = np.deg2rad(225.0)                    # target heading (225°)
-target_vel = np.array([np.cos(phi), np.sin(phi)])
+# 参数设置
+N = 100            # 离散节点数
+T = 1.0            # 总时间
+h = T / (N - 1)    # 时间步长
+x0, v0 = 0, 0      # 初始位置和速度
+xf, vf = 1, 0      # 末端位置和速度
 
-# Missile parameters
-v_m = 2.0                                  # missile speed
-max_turn_rate = np.deg2rad(30.0)           # max turn rate [rad/s]
+# 给定终点协态变量，递推整个轨迹
+def simulate(lam_xN, lam_vN):
+    lam_x = np.zeros(N)    # 协态变量 lambda_x
+    lam_v = np.zeros(N)    # 协态变量 lambda_v
+    lam_x[-1] = lam_xN     # 终点边界条件
+    lam_v[-1] = lam_vN
+    # 反向递推协态变量
+    for k in range(N-2, -1, -1):
+        lam_x[k] = lam_x[k+1]
+        lam_v[k] = lam_v[k+1] + h * lam_x[k+1]
+    x = np.zeros(N)        # 位置
+    v = np.zeros(N)        # 速度
+    u = np.zeros(N-1)      # 控制输入
+    x[0] = x0
+    v[0] = v0
+    # 正向递推状态和控制
+    for k in range(N-1):
+        u[k] = -0.5 * lam_v[k+1]
+        x[k+1] = x[k] + h * v[k]
+        v[k+1] = v[k] + h * u[k]
+    return x, v, u
 
-# Initial states
-x_m = np.array([0.0, 0.0])                 # missile position
-heading = np.deg2rad(45.0)                 # missile initial heading
-x_t = np.array([10.0, 10.0])               # target position
+# 射击法目标函数：返回终点状态误差
+def boundary_error(lamN):
+    lam_xN, lam_vN = lamN  # lamN为终点协态变量
+    x, v, u = simulate(lam_xN, lam_vN)
+    # 返回终点位置和速度的误差
+    return np.array([x[-1] - xf, v[-1] - vf])
 
-# Data storage for plotting
-missile_path = [x_m.copy()]
-target_path = [x_t.copy()]
+# 求解使得终点约束成立的协态变量终值
+sol = root(boundary_error, [0.0, 0.0])
+lam_xN_opt, lam_vN_opt = sol.x
+x, v, u = simulate(lam_xN_opt, lam_vN_opt)
 
-# Simulation loop
-for t in t_vals[1:]:
-    # --- target update (straight line) ---
-    x_t = x_t + v_t * dt * target_vel
-
-    # --- missile guidance (pure pursuit) ---
-    # direction to target
-    vec_to_target = x_t - x_m
-    desired_heading = np.arctan2(vec_to_target[1], vec_to_target[0])
-    # heading error
-    delta = (desired_heading - heading + np.pi) % (2*np.pi) - np.pi
-    # limit turn rate
-    turn = np.clip(delta, -max_turn_rate*dt, max_turn_rate*dt)
-    heading = heading + turn
-
-    # missile update
-    x_m = x_m + v_m * dt * np.array([np.cos(heading), np.sin(heading)])
-
-    missile_path.append(x_m.copy())
-    target_path.append(x_t.copy())
-
-    # check for intercept
-    if np.linalg.norm(x_t - x_m) < 0.1:
-        print(f"Intercept at t = {t:.2f}s, position = {x_m}")
-        break
-
-missile_path = np.array(missile_path)
-target_path = np.array(target_path)
-sim_time = np.arange(len(missile_path)) * dt
-
-# --- set up animation ---
-fig, ax = plt.subplots(figsize=(8,8))
-ax.set_xlim(min(missile_path[:,0].min(), target_path[:,0].min()) - 5,
-            max(missile_path[:,0].max(), target_path[:,0].max()) + 5)
-ax.set_ylim(min(missile_path[:,1].min(), target_path[:,1].min()) - 5,
-            max(missile_path[:,1].max(), target_path[:,1].max()) + 5)
-ax.set_xlabel('x')
-ax.set_ylabel('y')
-ax.set_title('Missile Pursuit Animation')
-
-missile_line, = ax.plot([], [], 'r-', lw=2, label='Missile path')
-target_line, = ax.plot([], [], 'b--', lw=1, label='Target path')
-missile_dot,  = ax.plot([], [], 'ro')
-target_dot,   = ax.plot([], [], 'bo')
-ax.legend()
-ax.grid(True)
-ax.axis('equal')
-
-def init():
-    missile_line.set_data([], [])
-    target_line.set_data([], [])
-    missile_dot.set_data([], [])
-    target_dot.set_data([], [])
-    return missile_line, target_line, missile_dot, target_dot
-
-def update(frame):
-    # frame is index in arrays
-    missile_line.set_data(missile_path[:frame,0], missile_path[:frame,1])
-    target_line.set_data(target_path[:frame,0], target_path[:frame,1])
-    missile_dot.set_data(missile_path[frame,0], missile_path[frame,1])
-    target_dot.set_data(target_path[frame,0], target_path[frame,1])
-    return missile_line, target_line, missile_dot, target_dot
-
-anim = FuncAnimation(fig, update,
-                     frames=len(missile_path),
-                     init_func=init,
-                     interval=dt*1000,
-                     blit=True)
-
-# To save the animation, uncomment:
-# anim.save('missile_pursuit.gif', writer='imagemagick', fps=30)
-
+# 画图
+t = np.linspace(0, T, N)
+plt.figure(figsize=(9,5))
+plt.plot(t, x, label='位置 $x_k$')
+plt.plot(t, v, label='速度 $v_k$')
+plt.plot(t[:-1], u, label='控制 $u_k$')
+plt.xlabel('时间')
+plt.ylabel('数值')
+plt.title('离散最优控制轨迹（射击法）')
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
 plt.show()
+
+# 打印最终位置和速度，检查是否满足目标约束
+print(f"终点位置 x_N = {x[-1]:.6f}, 终点速度 v_N = {v[-1]:.6f}")
+print(f"终点协态变量 lam_xN = {lam_xN_opt:.6f}, lam_vN = {lam_vN_opt:.6f}")
