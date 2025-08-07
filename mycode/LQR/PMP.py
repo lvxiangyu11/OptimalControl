@@ -33,6 +33,8 @@ def simulate(lam_xN, lam_vN):
         u[k] = -0.5 * lam_v[k+1]
         x[k+1] = x[k] + h * v[k]
         v[k+1] = v[k] + h * u[k]
+        
+        print(f"Step {k+1}: x = {x[k+1]:.6f}, v = {v[k+1]:.6f}, u = {u[k]:.6f}, lam_x = {lam_x[k+1]:.6f}, lam_v = {lam_v[k+1]:.6f}")
     return x, v, u
 
 # 射击法目标函数：返回终点状态误差
